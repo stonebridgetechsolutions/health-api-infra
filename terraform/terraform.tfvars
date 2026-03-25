@@ -1,0 +1,5 @@
+project_id         = "CHANGEME"
+region             = "us-central1"
+cluster_name       = "health-api-cluster"
+repository_id      = "health-api-repo"
+service_account_id = "health-api-sa"

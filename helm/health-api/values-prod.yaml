@@ -1,0 +1,5 @@
+replicaCount: 3
+
+autoscaling:
+  minReplicas: 3
+  maxReplicas: 20

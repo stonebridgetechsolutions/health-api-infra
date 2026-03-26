@@ -40,7 +40,7 @@ graph TB
     end
 
     subgraph "Observability"
-        R[/metrics\nPrometheus] ~~~ S[Grafana\nDashboard]
+        R[Prometheus\nMetrics] ~~~ S[Grafana\nDashboard]
     end
 
     D --> J

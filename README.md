@@ -7,29 +7,40 @@ Production-grade Python Flask API deployed to GKE with Terraform, Helm, and GitH
 ```mermaid
 graph TB
     subgraph "GitHub Actions CI/CD"
-        A[Push to main] --> B[Lint + Test]
-        A --> C[Security Scan]
-        B --> D[Build & Push Image]
+        A[Push to main] --> B[Lint + Test\n10 unit tests]
+        A --> C[Trivy\nSecurity Scan]
+        B --> D[Docker Build & Push\nLayer Caching]
         C --> D
         D --> E[Deploy Staging]
         E -->|Manual Approval| F[Deploy Production]
     end
 
-    subgraph "GCP — Terraform Managed"
+    subgraph "GCP — Terraform Managed (7 Modules)"
         subgraph "VPC (Private Subnet)"
             subgraph "GKE Autopilot"
-                subgraph "staging"
-                    G[Health API Pod]
+                subgraph "staging namespace"
+                    G[Pod x1\nHPA 1-3]
                 end
-                subgraph "production"
-                    H[Health API Pod x3]
+                subgraph "production namespace"
+                    H[Pod x3\nHPA 3-20]
                 end
             end
-            I[(Cloud SQL\nPostgreSQL)]
+            I[(Cloud SQL\nPostgreSQL 15)]
         end
-        J[Artifact Registry]
-        K[Secret Manager]
-        L[Cloud Monitoring]
+        J[Artifact\nRegistry]
+        K[Secret\nManager]
+        L[Cloud Monitoring\nAlert Policies]
+        M[IAM\nWorkload Identity]
+    end
+
+    subgraph "Kubernetes Features"
+        N[HPA] ~~~ O[PDB]
+        O ~~~ P[Resource Quotas]
+        P ~~~ Q[Network Policies]
+    end
+
+    subgraph "Observability"
+        R[/metrics\nPrometheus] ~~~ S[Grafana\nDashboard]
     end
 
     D --> J
@@ -39,7 +50,9 @@ graph TB
     H --> I
     K -.->|DB Creds| E
     K -.->|DB Creds| F
-    L -.->|Alerts| H
+    M -.->|OIDC| D
+    L -.->|Error Rate\nPod Restarts| H
+    H -.-> R
 ```
 
 ## Project Structure

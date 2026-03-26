@@ -6,33 +6,34 @@
 
 Push to `main` triggers the full pipeline. Production requires manual approval in the GitHub Actions `production` environment.
 
+Pipeline stages:
+1. **Lint + Test** — flake8, pytest (10 tests)
+2. **Security Scan** — Trivy filesystem scan for CRITICAL vulnerabilities
+3. **Build & Push** — Multi-stage Docker build with layer caching, push to Artifact Registry
+4. **Deploy Staging** — Helm upgrade with staging values, fetches DB creds from Secret Manager
+5. **Deploy Production** — Manual approval gate, then Helm upgrade with prod values
+
 ### Manual Deploy
 
 ```bash
-# Authenticate
-gcloud auth login
 gcloud container clusters get-credentials health-api-cluster --region us-central1
 
-# Deploy to staging
-helm upgrade --install health-api ./helm/health-api \
-  -n staging --create-namespace \
-  -f ./helm/health-api/values-staging.yaml \
-  --set image.repository=us-central1-docker.pkg.dev/PROJECT_ID/health-api-repo/health-api \
-  --set image.tag=IMAGE_TAG \
-  --wait --timeout 5m
+# Fetch DB credentials
+DB_HOST=$(gcloud secrets versions access latest --secret=db-host)
+DB_PASSWORD=$(gcloud secrets versions access latest --secret=db-password)
 
-# Deploy to production
+# Deploy
 helm upgrade --install health-api ./helm/health-api \
   -n production --create-namespace \
   -f ./helm/health-api/values-prod.yaml \
   --set image.repository=us-central1-docker.pkg.dev/PROJECT_ID/health-api-repo/health-api \
   --set image.tag=IMAGE_TAG \
+  --set database.host=$DB_HOST \
+  --set database.password=$DB_PASSWORD \
   --wait --timeout 5m
 ```
 
 ## Rollback
-
-### Helm Rollback
 
 ```bash
 # List release history
@@ -45,33 +46,40 @@ helm rollback health-api -n production
 helm rollback health-api 3 -n production
 ```
 
-### Rollback to Specific Image
-
-```bash
-helm upgrade --install health-api ./helm/health-api \
-  -n production \
-  -f ./helm/health-api/values-prod.yaml \
-  --set image.repository=us-central1-docker.pkg.dev/PROJECT_ID/health-api-repo/health-api \
-  --set image.tag=KNOWN_GOOD_SHA \
-  --wait --timeout 5m
-```
-
 ## Verify Deployment
 
 ```bash
-# Check pod status
-kubectl get pods -n production -l app.kubernetes.io/name=health-api
+# Check pods
+kubectl get pods -n production
 
-# Check endpoints
-kubectl port-forward svc/health-api 8080:80 -n production
-curl http://localhost:8080/health
-curl http://localhost:8080/ready
+# Check services and external IP
+kubectl get svc health-api -n production
 
-# Check HPA
+# Hit endpoints
+EXTERNAL_IP=$(kubectl get svc health-api -n production -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+curl http://$EXTERNAL_IP/health
+curl http://$EXTERNAL_IP/ready
+
+# Create a pipeline run
+curl -X POST http://$EXTERNAL_IP/api/runs -H 'Content-Type: application/json' -d '{"sample_id": "SAMPLE-001"}'
+
+# List runs
+curl http://$EXTERNAL_IP/api/runs
+
+# Check Prometheus metrics
+curl http://$EXTERNAL_IP/metrics
+
+# Check autoscaling
 kubectl get hpa -n production
 
+# Check pod disruption budget
+kubectl get pdb -n production
+
+# Check resource quotas
+kubectl get resourcequota -n production
+
 # View logs
-kubectl logs -l app.kubernetes.io/name=health-api -n production --tail=100
+kubectl logs -l app.kubernetes.io/name=health-api -n production --tail=50
 ```
 
 ## Troubleshooting
@@ -83,29 +91,45 @@ kubectl describe pod -l app.kubernetes.io/name=health-api -n production
 kubectl get events -n production --sort-by='.lastTimestamp'
 ```
 
+### Database connection issues
+
+```bash
+# Verify Cloud SQL is running
+gcloud sql instances describe health-api-db --format='value(state)'
+
+# Verify secrets exist
+gcloud secrets versions access latest --secret=db-host
+gcloud secrets versions access latest --secret=db-name
+
+# Check pod environment
+kubectl exec -it deploy/health-api -n production -- env | grep DB_
+```
+
 ### Image pull errors
 
-Verify Artifact Registry access:
 ```bash
 gcloud artifacts repositories describe health-api-repo --location=us-central1
 ```
 
-### Terraform state issues
+## Infrastructure Management
+
+### Terraform
 
 ```bash
 cd terraform
-terraform refresh -var="project_id=PROJECT_ID"
-terraform plan -var="project_id=PROJECT_ID"
+terraform plan    # Review changes
+terraform apply   # Apply changes
+terraform output  # View outputs
 ```
 
-## Infrastructure Teardown
+### Teardown
 
 ```bash
 # Remove Helm releases
 helm uninstall health-api -n staging
 helm uninstall health-api -n production
 
-# Destroy Terraform resources
+# Destroy infrastructure
 cd terraform
-terraform destroy -var="project_id=PROJECT_ID"
+terraform destroy
 ```

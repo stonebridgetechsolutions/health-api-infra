@@ -40,3 +40,24 @@ variable "services_cidr" {
   type        = string
   default     = "10.2.0.0/20"
 }
+
+variable "db_instance_name" {
+  description = "Cloud SQL instance name"
+  type        = string
+}
+
+variable "db_name" {
+  description = "Database name"
+  type        = string
+}
+
+variable "db_user" {
+  description = "Database user"
+  type        = string
+}
+
+variable "db_tier" {
+  description = "Cloud SQL machine tier"
+  type        = string
+  default     = "db-f1-micro"
+}

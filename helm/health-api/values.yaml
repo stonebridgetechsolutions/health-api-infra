@@ -28,13 +28,29 @@ probes:
   liveness:
     path: /health
     port: 8080
-    initialDelaySeconds: 5
+    initialDelaySeconds: 10
     periodSeconds: 10
   readiness:
     path: /ready
     port: 8080
-    initialDelaySeconds: 3
+    initialDelaySeconds: 5
     periodSeconds: 5
 
 networkPolicy:
   enabled: true
+
+pdb:
+  minAvailable: 1
+
+resourceQuota:
+  enabled: true
+  cpu: "2"
+  memory: 2Gi
+  pods: "20"
+
+database:
+  enabled: false
+  host: ""
+  password: ""
+  name: healthapi
+  user: healthapi

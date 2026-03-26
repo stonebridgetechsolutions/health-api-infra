@@ -1,109 +1,150 @@
 # Health API Infrastructure
 
-Python Flask health API deployed to GKE using Terraform, Helm, and GitHub Actions.
+Production-grade Python Flask API deployed to GKE with Terraform, Helm, and GitHub Actions CI/CD.
 
 ## Architecture
 
 ```mermaid
-graph LR
-    subgraph GitHub
-        A[Push to main] --> B[Security Scan]
-        B --> C[Build & Push Image]
+graph TB
+    subgraph "GitHub Actions CI/CD"
+        A[Push to main] --> B[Lint + Test]
+        A --> C[Security Scan]
+        B --> D[Build & Push Image]
+        C --> D
+        D --> E[Deploy Staging]
+        E -->|Manual Approval| F[Deploy Production]
     end
 
-    subgraph GCP
-        subgraph Artifact Registry
-            D[Container Image]
-        end
-
-        subgraph GKE Autopilot
-            subgraph staging
-                E[Health API Pods]
+    subgraph "GCP — Terraform Managed"
+        subgraph "VPC (Private Subnet)"
+            subgraph "GKE Autopilot"
+                subgraph "staging"
+                    G[Health API Pod]
+                end
+                subgraph "production"
+                    H[Health API Pod x3]
+                end
             end
-            subgraph production
-                F[Health API Pods]
-            end
+            I[(Cloud SQL\nPostgreSQL)]
         end
+        J[Artifact Registry]
+        K[Secret Manager]
+        L[Cloud Monitoring]
     end
 
-    C --> D
-    D --> E
-    E -->|Manual Approval| F
-
-    style staging fill:#f9f,stroke:#333
-    style production fill:#9f9,stroke:#333
+    D --> J
+    J --> G
+    J --> H
+    G --> I
+    H --> I
+    K -.->|DB Creds| E
+    K -.->|DB Creds| F
+    L -.->|Alerts| H
 ```
 
 ## Project Structure
 
 ```
-infra/
-├── app/                    # Flask application
-│   ├── main.py
-│   └── requirements.txt
-├── terraform/              # GCP infrastructure
-│   ├── backend.tf
-│   ├── providers.tf
-│   ├── variables.tf
-│   ├── vpc.tf
-│   ├── gke.tf
-│   ├── registry.tf
-│   ├── iam.tf
-│   └── outputs.tf
-├── helm/health-api/        # Kubernetes manifests
+├── app/                           # Flask application
+│   ├── main.py                    # API with CRUD, Prometheus metrics
+│   ├── requirements.txt
+│   ├── requirements-dev.txt
+│   └── tests/
+│       └── test_api.py            # 10 unit tests
+├── terraform/                     # GCP infrastructure (modularized)
+│   ├── main.tf                    # Module composition
+│   ├── variables.tf / terraform.tfvars
+│   ├── providers.tf / backend.tf
+│   ├── outputs.tf
+│   └── modules/
+│       ├── vpc/                   # VPC + private subnet
+│       ├── gke/                   # GKE Autopilot cluster
+│       ├── registry/              # Artifact Registry
+│       ├── iam/                   # Service accounts + roles
+│       ├── cloudsql/              # Cloud SQL PostgreSQL
+│       ├── secret-manager/        # GCP Secret Manager
+│       └── monitoring/            # Alert policies + log metrics
+├── helm/health-api/               # Kubernetes manifests
 │   ├── Chart.yaml
-│   ├── values.yaml
+│   ├── values.yaml                # Base values
 │   ├── values-staging.yaml
 │   ├── values-prod.yaml
 │   └── templates/
+│       ├── deployment.yaml        # Zero-downtime rolling update
+│       ├── service.yaml
+│       ├── hpa.yaml               # Horizontal Pod Autoscaler
+│       ├── networkpolicy.yaml     # Ingress/egress rules
+│       ├── pdb.yaml               # Pod Disruption Budget
+│       ├── resourcequota.yaml     # Namespace resource limits
+│       └── secret.yaml            # DB credentials from Secret Manager
 ├── .github/workflows/
-│   └── deploy.yml          # CI/CD pipeline
-├── Dockerfile
+│   ├── deploy.yml                 # CI/CD: lint → test → scan → build → deploy
+│   └── infra.yml                  # Terraform: plan on PR → apply on merge
+├── grafana/
+│   └── dashboard.json             # Grafana dashboard (as code)
+├── Dockerfile                     # Multi-stage, non-root, read-only fs
 └── RUNBOOK.md
 ```
+
+## API Endpoints
+
+| Endpoint            | Method | Description                     |
+|---------------------|--------|---------------------------------|
+| `/health`           | GET    | Liveness check (includes DB)    |
+| `/ready`            | GET    | Readiness check                 |
+| `/metrics`          | GET    | Prometheus metrics               |
+| `/api/runs`         | GET    | List pipeline runs (filterable) |
+| `/api/runs`         | POST   | Create a pipeline run           |
+| `/api/runs/<id>`    | GET    | Get a single run                |
+| `/api/runs/<id>`    | PATCH  | Update run status/duration      |
+
+## Key Design Decisions
+
+- **Workload Identity Federation** — no static JSON keys; OIDC token exchange for CI/CD auth
+- **Secret Manager** — DB credentials stored and fetched at deploy time, never in code or Helm values
+- **Zero-downtime deploys** — `maxSurge: 1, maxUnavailable: 0` with readiness probes
+- **Pod Disruption Budgets** — guarantees availability during node drains and upgrades
+- **Resource Quotas** — prevents namespace resource exhaustion across staging/prod
+- **Read-only root filesystem** — container security hardening with tmpfs for gunicorn workers
+- **Prometheus metrics** — request rate, latency histograms, DB status, pipeline run counters
+- **Terraform modules** — reusable, composable infrastructure across environments
+- **Docker layer caching** — GitHub Actions cache for faster builds
+- **Separate CI/CD pipelines** — app deploys (frequent, low-risk) vs infra changes (infrequent, auditable)
 
 ## Prerequisites
 
 - GCP project with billing enabled
 - `gcloud`, `terraform`, `helm`, `kubectl` installed
-- GitHub repo with these secrets/vars configured:
-  - `vars.GCP_PROJECT` — GCP project ID
-  - `vars.WIF_PROVIDER` — Workload Identity Federation provider
-  - `vars.WIF_SERVICE_ACCOUNT` — GCP service account for CI
+- GitHub repo with vars: `GCP_PROJECT`, `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT`
 
 ## Quick Start
 
 ### 1. Provision Infrastructure
 
 ```bash
-cd infra/terraform
+cd terraform
 terraform init
-terraform plan -var="project_id=lucasj-contracts"
-terraform apply -var="project_id=lucasj-contracts"
+terraform plan
+terraform apply
 ```
 
 ### 2. Build & Run Locally
 
 ```bash
-cd infra
 docker build -t health-api .
 docker run -p 8080:8080 health-api
 curl http://localhost:8080/health
 curl http://localhost:8080/ready
 ```
 
-### 3. Deploy via CI/CD
+### 3. Run Tests
 
-Push to `main` to trigger the pipeline:
-1. Security scan (Trivy)
-2. Docker build & push to Artifact Registry
-3. Helm deploy to **staging**
-4. Manual approval gate
-5. Helm promote to **production**
+```bash
+pip install -r app/requirements-dev.txt
+python -m pytest app/tests/ -v
+flake8 app/ --max-line-length=120 --exclude=app/tests
+```
 
-## Endpoints
+### 4. CI/CD Pipeline
 
-| Endpoint  | Method | Description       |
-|-----------|--------|-------------------|
-| `/health` | GET    | Liveness check    |
-| `/ready`  | GET    | Readiness check   |
+Push to `main` triggers: lint → test → security scan → build → staging → approval → production.

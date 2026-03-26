@@ -40,3 +40,37 @@ module "iam" {
     "roles/monitoring.metricWriter",
   ]
 }
+
+module "cloudsql" {
+  source = "./modules/cloudsql"
+
+  instance_name = var.db_instance_name
+  region        = var.region
+  network_id    = module.vpc.network_id
+  db_name       = var.db_name
+  db_user       = var.db_user
+  tier          = var.db_tier
+
+  depends_on = [module.vpc]
+}
+
+module "secrets" {
+  source = "./modules/secret-manager"
+
+  project_id = var.project_id
+  secrets = {
+    "db-host"     = module.cloudsql.private_ip
+    "db-password" = module.cloudsql.db_password
+    "db-name"     = var.db_name
+    "db-user"     = var.db_user
+  }
+
+  depends_on = [module.cloudsql]
+}
+
+module "monitoring" {
+  source = "./modules/monitoring"
+
+  app_name   = "health-api"
+  project_id = var.project_id
+}

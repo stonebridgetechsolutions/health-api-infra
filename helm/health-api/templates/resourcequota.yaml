@@ -1,0 +1,14 @@
+{{- if .Values.resourceQuota.enabled }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ .Release.Namespace }}-quota
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  hard:
+    requests.cpu: {{ .Values.resourceQuota.cpu }}
+    requests.memory: {{ .Values.resourceQuota.memory }}
+    pods: {{ .Values.resourceQuota.pods | quote }}
+{{- end }}

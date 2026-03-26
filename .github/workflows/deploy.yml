@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  id-token: write
+
 env:
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
   GCP_REGION: us-central1
@@ -29,9 +33,6 @@ jobs:
   build-push:
     needs: security-scan
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v4
 

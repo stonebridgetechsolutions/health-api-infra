@@ -1,4 +1,4 @@
-project_id         = "CHANGEME"
+project_id         = "lucasj-contracts"
 region             = "us-central1"
 cluster_name       = "health-api-cluster"
 repository_id      = "health-api-repo"

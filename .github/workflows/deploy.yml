@@ -22,7 +22,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
-          scan-ref: ./infra/app
+          scan-ref: ./app
           exit-code: "1"
           severity: CRITICAL
 
@@ -49,7 +49,7 @@ jobs:
 
       - name: Build and push image
         run: |
-          docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest ./infra
+          docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
           docker push $IMAGE:${{ github.sha }}
           docker push $IMAGE:latest
 
@@ -77,9 +77,9 @@ jobs:
 
       - name: Deploy to staging
         run: |
-          helm upgrade --install health-api ./infra/helm/health-api \
+          helm upgrade --install health-api ./helm/health-api \
             -n staging --create-namespace \
-            -f ./infra/helm/health-api/values-staging.yaml \
+            -f ./helm/health-api/values-staging.yaml \
             --set image.repository=$IMAGE \
             --set image.tag=${{ github.sha }} \
             --wait --timeout 5m
@@ -108,9 +108,9 @@ jobs:
 
       - name: Deploy to production
         run: |
-          helm upgrade --install health-api ./infra/helm/health-api \
+          helm upgrade --install health-api ./helm/health-api \
             -n production --create-namespace \
-            -f ./infra/helm/health-api/values-prod.yaml \
+            -f ./helm/health-api/values-prod.yaml \
             --set image.repository=$IMAGE \
             --set image.tag=${{ github.sha }} \
             --wait --timeout 5m

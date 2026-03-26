@@ -1,6 +1,6 @@
 terraform {
   backend "gcs" {
-    bucket = "CHANGEME-tf-state"
+    bucket = "health-api-infra-tf-state"
     prefix = "gke-health-api"
   }
 }

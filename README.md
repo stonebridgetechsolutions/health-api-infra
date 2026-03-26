@@ -78,8 +78,8 @@ infra/
 ```bash
 cd infra/terraform
 terraform init
-terraform plan -var="project_id=YOUR_PROJECT_ID"
-terraform apply -var="project_id=YOUR_PROJECT_ID"
+terraform plan -var="project_id=lucasj-contracts"
+terraform apply -var="project_id=lucasj-contracts"
 ```
 
 ### 2. Build & Run Locally
